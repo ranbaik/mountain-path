@@ -4,7 +4,7 @@ import Dexie, { type EntityTable } from 'dexie'
 export interface VersePos { c: number; v: number }
 export interface Ref { book: number; from: VersePos; to: VersePos }
 
-export type Weekday = 1 | 2 | 3 | 4 | 5   // 월~금
+export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7   // 월~금 (+ 토=6, 주일=7: 매일 묵상 계획일 때)
 
 export interface DayPlan { weekday: Weekday; ref: Ref; focus?: string }
 
@@ -15,7 +15,7 @@ export interface Sermon {
   title: string
   passage: string         // 사람이 읽는 본문 범위 (예: "요한복음 15:1-17")
   preacher: string
-  days?: DayPlan[]        // 담당자가 손본 분할. 없으면 자동 분할
+  days?: DayPlan[]        // 요일별 본문(1~7일, 책이 달라도 됨). 없으면 passage 를 월~금 자동 분할
   groupQuestions?: string[]
   familyQuestion?: string
 }

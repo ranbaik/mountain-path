@@ -7,7 +7,11 @@ export const WEEKDAYS: { key: Weekday; label: string; short: string; focus: stri
   { key: 3, label: '수요일', short: '수', focus: '나는 이 말씀 앞에서 어떤 모습인지 비추어 보세요.' },
   { key: 4, label: '목요일', short: '목', focus: '오늘 하루, 이 말씀대로 살아 볼 한 가지를 정해 보세요.' },
   { key: 5, label: '금요일', short: '금', focus: '한 주를 돌아보며 감사와 결단을 드려요.' },
+  { key: 6, label: '토요일', short: '토', focus: '한 주 동안 받은 말씀을 떠올리며 천천히 읽어요.' },
+  { key: 7, label: '주일', short: '일', focus: '예배를 기대하며, 오늘 말씀으로 마음을 준비해요.' },
 ]
+/** 자동 분할에 쓰는 월~금 */
+const WORKDAYS = WEEKDAYS.slice(0, 5)
 
 /**
  * 본문 범위를 월~금 5일로 나눔.
@@ -17,11 +21,11 @@ export const WEEKDAYS: { key: Weekday; label: string; short: string; focus: stri
 export function splitRef(ref: Ref): DayPlan[] {
   const verses = expandRef(ref)
   const n = verses.length
-  if (n < 5) return WEEKDAYS.map((d) => ({ weekday: d.key, ref, focus: d.focus }))
+  if (n < 5) return WORKDAYS.map((d) => ({ weekday: d.key, ref, focus: d.focus }))
   const base = Math.floor(n / 5), extra = n % 5
   const plans: DayPlan[] = []
   let i = 0
-  for (const d of WEEKDAYS) {
+  for (const d of WORKDAYS) {
     const size = base + (d.key <= extra ? 1 : 0)
     plans.push({ weekday: d.key, ref: { book: ref.book, from: verses[i], to: verses[i + size - 1] }, focus: d.focus })
     i += size
@@ -29,9 +33,9 @@ export function splitRef(ref: Ref): DayPlan[] {
   return plans
 }
 
-/** 담당자가 저장한 분할이 있으면 그것을, 없으면 자동 분할 */
+/** 요일별 본문이 저장돼 있으면 그것을(요일 순), 없으면 월~금 자동 분할 */
 export function dayPlans(sermon: Sermon): DayPlan[] | null {
-  if (sermon.days?.length === 5) return sermon.days
+  if (sermon.days?.length) return [...sermon.days].sort((a, b) => a.weekday - b.weekday)
   const ref = parseRef(sermon.passage)
   return ref ? splitRef(ref) : null
 }
@@ -47,22 +51,26 @@ export function toYmd(d: Date): string {
 }
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 
-/** 설교(주일) 기준 요일 날짜: 월=+1 … 금=+5 */
+/** 설교(주일) 기준 요일 날짜: 월=+1 … 금=+5, 토=+6, 다음 주일=+7 */
 export const dayDate = (sermon: Sermon, weekday: Weekday) => addDays(parseDate(sermon.date), weekday)
 
 export const fmtDate = (d: Date) => `${d.getMonth() + 1}월 ${d.getDate()}일`
 
 /**
- * 오늘이 속한 주의 설교(주일~토요일)와 오늘의 요일(월~금이면 1~5, 주일·토요일이면 null).
- * 이번 주 설교가 아직 없으면 가장 최근 설교를 돌려줌.
+ * 오늘 묵상할 주와 요일.
+ * 1) 오늘 날짜의 본문이 있는 주를 먼저 찾음 (토·주일까지 있는 주는 다음 주일과 겹치므로 이 순서가 중요)
+ * 2) 없으면 오늘이 속한 주(주일~토요일)의 설교, 그것도 없으면 가장 최근(또는 첫) 설교 — 이때 요일은 null
  */
 export function currentWeek(sermons: Sermon[], today = new Date()) {
   const t = toYmd(today)
-  const past = sermons.filter((s) => s.date <= t).sort((a, b) => b.date.localeCompare(a.date))
-  const sermon = past[0] ?? [...sermons].sort((a, b) => a.date.localeCompare(b.date))[0]
+  const diffOf = (s: Sermon) => Math.round((parseDate(t).getTime() - parseDate(s.date).getTime()) / 86400000)
+  const desc = [...sermons].sort((a, b) => b.date.localeCompare(a.date))
+  for (const s of desc) {
+    const d = diffOf(s)
+    if (d >= 1 && d <= 7 && dayPlans(s)?.some((p) => p.weekday === d)) return { sermon: s, weekday: d as Weekday, inWeek: true }
+  }
+  const sermon = desc.find((s) => s.date <= t) ?? desc.at(-1)
   if (!sermon) return { sermon: undefined, weekday: null as Weekday | null, inWeek: false }
-  const diff = Math.round((parseDate(t).getTime() - parseDate(sermon.date).getTime()) / 86400000)
-  const inWeek = diff >= 0 && diff <= 6
-  const weekday = inWeek && diff >= 1 && diff <= 5 ? (diff as Weekday) : null
-  return { sermon, weekday, inWeek }
+  const diff = diffOf(sermon)
+  return { sermon, weekday: null as Weekday | null, inWeek: diff >= 0 && diff <= 6 }
 }

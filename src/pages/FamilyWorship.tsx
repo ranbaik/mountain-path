@@ -18,7 +18,8 @@ export default function FamilyWorship() {
   const sermon = cw.sermon
   const plans = sermon ? dayPlans(sermon) : null
   const [day, setDay] = useState<number | null>(null)
-  const plan = plans?.[(day ?? (cw.weekday ?? 1)) - 1]
+  const want = day ?? cw.weekday ?? plans?.[0]?.weekday
+  const plan = plans?.find((p) => p.weekday === want) ?? plans?.[0]
 
   const steps = sermon && plan ? [
     { t: '마음 열기', b: '가족이 둘러앉아 잠시 조용히 눈을 감고, 이 시간을 하나님께 드려요.' },
@@ -41,11 +42,11 @@ export default function FamilyWorship() {
               <h1 className="font-serif text-2xl font-bold">가정예배 순서지</h1>
             </div>
             <section className="card">
-              <p className="text-xs text-moss-600">{fmtDate(parseDate(sermon.date))} 주일 말씀을 따라</p>
+              <p className="text-xs text-moss-600">{sermon.preacher ? `${fmtDate(parseDate(sermon.date))} 주일 말씀을 따라` : '이번 주 묵상 말씀을 따라'}</p>
               <h2 className="font-serif text-xl font-bold">{sermon.title}</h2>
               <p className="text-sm text-ink-500">{sermon.passage}</p>
-              <div className="no-print mt-3 grid grid-cols-5 gap-1.5">
-                {WEEKDAYS.map((d) => (
+              <div className="no-print mt-3 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${plans.length}, minmax(0, 1fr))` }}>
+                {plans.map((p) => WEEKDAYS[p.weekday - 1]).map((d) => (
                   <button key={d.key} onClick={() => setDay(d.key)}
                     className={`rounded-xl py-1.5 text-sm font-semibold ${plan?.weekday === d.key ? 'bg-moss-600 text-white' : 'bg-moss-50 text-ink-700'}`}>{d.short}</button>
                 ))}

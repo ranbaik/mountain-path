@@ -5,7 +5,7 @@ import BottomNav from '../components/BottomNav'
 import MeditationCard from '../components/MeditationCard'
 import Passage from '../components/Passage'
 import { useConfig } from '../config'
-import { db, hasContent, type Sermon, type Weekday } from '../db'
+import { db, hasContent, type DayPlan, type Sermon, type Weekday } from '../db'
 import { formatRef } from '../lib/bible'
 import { saveProfile, useProfile } from '../lib/profile'
 import { useSermons } from '../lib/sermons'
@@ -47,11 +47,17 @@ function Welcome() {
   )
 }
 
-function WeekDays({ sermon, weekday, today }: { sermon: Sermon; weekday?: Weekday; today: Weekday | null }) {
+/** 설교자가 있으면 '11월 15일 주일 말씀', 매일 묵상 계획이면 '11월 16일 ~ 11월 22일 묵상' */
+function weekKicker(sermon: Sermon, plans: DayPlan[] | null) {
+  if (sermon.preacher || !plans?.length) return `${fmtDate(parseDate(sermon.date))} 주일 말씀`
+  return `${fmtDate(dayDate(sermon, plans[0].weekday))} ~ ${fmtDate(dayDate(sermon, plans.at(-1)!.weekday))} 묵상`
+}
+
+function WeekDays({ sermon, plans, weekday, today }: { sermon: Sermon; plans: DayPlan[]; weekday?: Weekday; today: Weekday | null }) {
   const meds = useLiveQuery(() => db.meditations.where('sermonId').equals(sermon.id).toArray(), [sermon.id], [])
   return (
-    <div className="grid grid-cols-5 gap-1.5" role="tablist" aria-label="요일 선택">
-      {WEEKDAYS.map((d) => {
+    <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${plans.length}, minmax(0, 1fr))` }} role="tablist" aria-label="요일 선택">
+      {plans.map((p) => WEEKDAYS[p.weekday - 1]).map((d) => {
         const on = d.key === weekday
         const did = hasContent(meds.find((m) => m.weekday === d.key))
         return (
@@ -79,9 +85,9 @@ export default function Today() {
   const cw = currentWeek(sermons)
   const sermon = (params.sermonId && sermons.find((s) => s.id === params.sermonId)) || cw.sermon
   const pw = Number(params.weekday)
-  const weekday: Weekday | undefined = params.weekday && pw >= 1 && pw <= 5 ? (pw as Weekday)
-    : sermon === cw.sermon && cw.weekday ? cw.weekday : undefined
   const plans = sermon ? dayPlans(sermon) : null
+  const weekday: Weekday | undefined = params.weekday && plans?.some((p) => p.weekday === pw) ? (pw as Weekday)
+    : sermon === cw.sermon && cw.weekday ? cw.weekday : undefined
   const plan = plans?.find((p) => p.weekday === weekday)
   const todayWd = sermon === cw.sermon ? cw.weekday : null
   const hello = profile.name ? `${profile.name}님, ` : ''
@@ -91,9 +97,9 @@ export default function Today() {
       <header className="safe-top px-4 pb-2">
         <div className="mx-auto flex max-w-xl items-center gap-2">
           {cfg.logoUrl && <img src={cfg.logoUrl} alt="" className="h-7 w-7 object-contain" />}
-          <p className="flex-1 font-serif text-lg font-bold">{cfg.appName}</p>
+          <p className="flex-1 whitespace-nowrap font-serif text-lg font-bold">{cfg.appName}</p>
           {sermons.length > 1 && sermon && (
-            <select aria-label="다른 주 보기" className="rounded-full border border-moss-200 bg-white px-3 py-1.5 text-xs text-ink-700"
+            <select aria-label="다른 주 보기" className="min-w-0 max-w-[10.5rem] truncate rounded-full border border-moss-200 bg-white px-3 py-1.5 text-xs text-ink-700"
               value={sermon.id} onChange={(e) => nav(`/day/${e.target.value}/1`)}>
               {[...sermons].reverse().map((s) => <option key={s.id} value={s.id}>{fmtDate(parseDate(s.date))} · {s.title}</option>)}
             </select>
@@ -115,12 +121,12 @@ export default function Today() {
         {sermon && (
           <>
             <section className="rise rounded-3xl bg-gradient-to-br from-moss-600 to-moss-800 p-5 text-white shadow-card">
-              <p className="text-xs text-moss-100">{fmtDate(parseDate(sermon.date))} 주일 말씀{'draft' in sermon && sermon.draft ? ' · 미리보기(이 기기만)' : ''}</p>
+              <p className="text-xs text-moss-100">{weekKicker(sermon, plans)}{'draft' in sermon && sermon.draft ? ' · 미리보기(이 기기만)' : ''}</p>
               <h1 className="mt-1 font-serif text-2xl font-bold leading-snug">{sermon.title}</h1>
               <p className="mt-1 text-sm text-moss-100">{sermon.passage}{sermon.preacher ? ` · ${sermon.preacher}` : ''}</p>
             </section>
 
-            <WeekDays sermon={sermon} weekday={weekday} today={todayWd} />
+            {plans && <WeekDays sermon={sermon} plans={plans} weekday={weekday} today={todayWd} />}
 
             {!plans && <p className="card text-sm text-dawn-700">본문 범위 “{sermon.passage}”를 읽지 못했어요. 담당자에게 알려 주세요.</p>}
 
@@ -128,9 +134,9 @@ export default function Today() {
               <div className="card space-y-3 text-center">
                 <p className="text-3xl" aria-hidden>{cw.inWeek && new Date().getDay() === 6 ? '🌄' : '⛪'}</p>
                 <p className="font-serif text-lg font-bold">
-                  {cw.inWeek && new Date().getDay() === 6 ? `${hello}한 주의 산길을 돌아보는 날이에요` : `${hello}이번 주 묵상은 월요일부터 시작해요`}
+                  {cw.inWeek && new Date().getDay() === 6 ? `${hello}한 주의 산길을 돌아보는 날이에요` : `${hello}이번 주 묵상은 ${WEEKDAYS[plans[0].weekday - 1].label}부터 시작해요`}
                 </p>
-                <p className="text-sm text-ink-500">월요일 본문은 <b>{formatRef(plans[0].ref)}</b> 이에요. 위에서 요일을 눌러 미리 읽을 수 있어요.</p>
+                <p className="text-sm text-ink-500">{WEEKDAYS[plans[0].weekday - 1].label} 본문은 <b>{formatRef(plans[0].ref)}</b> 이에요. 위에서 요일을 눌러 미리 읽을 수 있어요.</p>
                 <div className="flex justify-center gap-2">
                   <Link className="btn-ghost" to="/path">⛰️ 나의 길 보기</Link>
                   <Link className="btn-ghost" to="/mokjang">🌿 목장 나눔</Link>

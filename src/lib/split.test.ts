@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Sermon } from '../db'
+import planJson from '../../public/sermons.json'
 import { expandRef, formatRef, parseRef } from './bible'
-import { currentWeek, dayDate, dayPlans, splitRef, toYmd } from './split'
+import { addDays, currentWeek, dayDate, dayPlans, parseDate, splitRef, toYmd } from './split'
 
 describe('parseRef', () => {
   it('여러 표기를 읽는다', () => {
@@ -56,7 +57,7 @@ describe('splitRef', () => {
   it('담당자가 저장한 분할을 우선한다', () => {
     const custom = splitRef(parseRef('시편 23')!).map((p) => ({ ...p, focus: 'x' }))
     const s: Sermon = { id: 'a', date: '2026-11-08', title: '', passage: '요한복음 1:1-5', preacher: '', days: custom }
-    expect(dayPlans(s)).toBe(custom)
+    expect(dayPlans(s)).toEqual(custom)
   })
 })
 
@@ -72,5 +73,44 @@ describe('날짜', () => {
     expect(currentWeek([older, s], new Date(2026, 10, 15)).weekday).toBeNull() // 주일
     expect(currentWeek([older, s], new Date(2026, 10, 21)).weekday).toBeNull() // 토요일
     expect(currentWeek([older, s], new Date(2026, 10, 30)).inWeek).toBe(false)
+  })
+})
+
+describe('매일 묵상 계획 (토·주일 포함, 책이 바뀌는 주)', () => {
+  const sermons = planJson as Sermon[]
+  const at = (ymd: string) => currentWeek(sermons, parseDate(ymd))
+
+  it('요일 순서대로, 책이 달라도 그대로 씀', () => {
+    const w = sermons.find((s) => s.id === '2026-11-15')!
+    const plans = dayPlans(w)!
+    expect(plans.map((p) => p.weekday)).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(plans.map((p) => formatRef(p.ref))).toEqual([
+      '고린도후서 12:1-13', '고린도후서 12:14-21', '고린도후서 13장', '시편 20장', '시편 21장', '시편 22:1-21', '시편 22:22-31',
+    ])
+  })
+
+  it('주일은 지난주의 7번째 날, 월요일은 새 주의 첫날', () => {
+    expect(at('2026-11-22')).toMatchObject({ sermon: { id: '2026-11-15' }, weekday: 7 })
+    expect(at('2026-11-23')).toMatchObject({ sermon: { id: '2026-11-22' }, weekday: 1 })
+    expect(at('2026-11-21')).toMatchObject({ sermon: { id: '2026-11-15' }, weekday: 6 })
+  })
+
+  it('성탄절과 마지막 날', () => {
+    const xmas = at('2026-12-25')
+    expect(xmas.weekday).toBe(5)
+    const p = dayPlans(xmas.sermon!)!.find((d) => d.weekday === 5)!
+    expect(formatRef(p.ref)).toBe('이사야 61장')
+    expect(p.focus).toContain('성탄절')
+    expect(at('2026-12-31')).toMatchObject({ sermon: { id: '2026-12-27' }, weekday: 4 })
+    expect(at('2027-01-01').weekday).toBeNull()   // 계획이 끝난 뒤
+    expect(at('2026-11-15').weekday).toBeNull()   // 시작 전 주일
+  })
+
+  it('11/16~12/31 하루도 빠짐없이 본문이 있음', () => {
+    for (let d = parseDate('2026-11-16'); toYmd(d) <= '2026-12-31'; d = addDays(d, 1)) {
+      const w = at(toYmd(d))
+      expect(w.weekday, toYmd(d)).not.toBeNull()
+      expect(toYmd(dayDate(w.sermon!, w.weekday!))).toBe(toYmd(d))
+    }
   })
 })

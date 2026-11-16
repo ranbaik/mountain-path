@@ -10,7 +10,7 @@ import { db, hasContent, type Meditation, type Sermon } from '../db'
 import { makeFaceCanvas, type AvatarGender } from '../lib/avatar'
 import { useProfile } from '../lib/profile'
 import { useSermons } from '../lib/sermons'
-import { WEEKDAYS, fmtDate, parseDate } from '../lib/split'
+import { WEEKDAYS, dayPlans, fmtDate, parseDate } from '../lib/split'
 
 type Walk = 'idle' | 'walking' | 'paused'
 const STEP_Y = 1.25      // 정거장(주일)마다 오르는 높이
@@ -75,7 +75,10 @@ function Mountain({ H, R0 }: { H: number; R0: number }) {
   )
 }
 
-/* 한 주 정거장: 발판 + 월~금 돌 5개 (묵상한 날은 빛남) */
+/** 그 주에 묵상하는 요일들 (본문을 못 읽으면 월~금) */
+const weekdaysOf = (s: Sermon) => dayPlans(s)?.map((p) => WEEKDAYS[p.weekday - 1]) ?? WEEKDAYS.slice(0, 5)
+
+/* 한 주 정거장: 발판 + 묵상하는 날 수만큼 돌 (월~금 5개, 매일 묵상이면 7개 · 묵상한 날은 빛남) */
 function Station({ p, sermon, days, selected, onSelect, big }: {
   p: THREE.Vector3; sermon: Sermon; days: boolean[]; selected: boolean; onSelect: (s: Sermon) => void; big: boolean
 }) {
@@ -90,7 +93,7 @@ function Station({ p, sermon, days, selected, onSelect, big }: {
         <meshStandardMaterial color={count ? '#44703a' : '#c7dcbb'} emissive={selected ? '#e7964a' : '#000'} emissiveIntensity={selected ? 0.4 : 0} />
       </mesh>
       {days.map((on, k) => {
-        const off = (k - 2) * 0.42
+        const off = (k - (days.length - 1) / 2) * (days.length > 5 ? 0.34 : 0.42)
         const pos = new THREE.Vector3(p.x + outward.x * 1.25 + side.x * off, p.y + 0.18, p.z + outward.z * 1.25 + side.z * off)
         return (
           <mesh key={k} position={pos}>
@@ -261,7 +264,7 @@ function PathWorld({ sermons, meds, selected, onSelect, walk, onWalkDone, onStat
       </Label>
       {sermons.map((s, i) => (
         <Station key={s.id} p={points[i + 1]} sermon={s} selected={selected?.id === s.id} onSelect={onSelect} big={big}
-          days={WEEKDAYS.map((d) => hasContent(meds.find((m) => m.sermonId === s.id && m.weekday === d.key)))} />
+          days={weekdaysOf(s).map((d) => hasContent(meds.find((m) => m.sermonId === s.id && m.weekday === d.key)))} />
       ))}
       <Avatar curve={curve} n={n} homeIdx={homeIdx + 1} walk={walk} progress={progress}
         photo={avatar.photo} gender={avatar.gender} name={avatar.name} />
@@ -287,7 +290,7 @@ export default function MyPath3D() {
   // 아바타 위치 = 묵상 기록이 하루라도 있는 가장 최근 주 (-1 = 아직 출발 전)
   const homeIdx = sermons.reduce((acc, s, i) => (meds.some((m) => m.sermonId === s.id && hasContent(m)) ? i : acc), -1)
   const climbed = sermons.filter((s) => meds.some((m) => m.sermonId === s.id && hasContent(m))).length
-  const selDays = selected ? WEEKDAYS.filter((d) => hasContent(meds.find((m) => m.sermonId === selected.id && m.weekday === d.key))) : []
+  const selDays = selected ? weekdaysOf(selected).filter((d) => hasContent(meds.find((m) => m.sermonId === selected.id && m.weekday === d.key))) : []
   const select = (s?: Sermon) => { setSelected(s); if (s) setWalk((w) => (w === 'walking' ? 'paused' : w)) }
 
   return (
@@ -341,7 +344,7 @@ export default function MyPath3D() {
             {walk === 'idle' && !selected && help && (
               <div className="absolute inset-x-3 bottom-24 z-20 mx-auto max-w-md rounded-2xl bg-white/90 p-3 pr-8 text-[13px] leading-relaxed text-ink-700 shadow">
                 <button className="absolute right-3 top-2 text-ink-500" aria-label="설명 닫기" onClick={() => setHelp(false)}>✕</button>
-                <b>주일마다 정거장이 하나씩</b> 생기는 산길이에요. 정거장 옆 작은 돌 5개는 월~금이고,
+                <b>주일마다 정거장이 하나씩</b> 생기는 산길이에요. 정거장 옆 작은 돌은 그 주의 묵상 날들이고,
                 묵상한 날은 <span className="font-semibold text-dawn-700">빛나요</span>.
                 아바타는 내가 묵상한 가장 최근 주까지 올라가 있어요.
                 {homeIdx < 0 && <span className="mt-1 block font-semibold text-moss-700">아직 출발 전이에요. 오늘 묵상을 하면 첫 정거장으로 올라가요!</span>}
@@ -357,10 +360,10 @@ export default function MyPath3D() {
                 <p className="mt-1 font-serif text-lg font-bold">{selected.title}</p>
                 <p className="text-sm text-ink-500">{selected.passage}</p>
                 <div className="mt-2 flex items-center gap-1">
-                  {WEEKDAYS.map((d) => (
-                    <span key={d.key} className={`grid h-8 w-8 place-items-center rounded-full text-xs font-semibold ${selDays.includes(d) ? 'bg-dawn-300 text-ink-900' : 'bg-moss-50 text-ink-300'}`}>{d.short}</span>
+                  {weekdaysOf(selected).map((d) => (
+                    <span key={d.key} className={`grid h-7 w-7 place-items-center rounded-full text-xs font-semibold ${selDays.includes(d) ? 'bg-dawn-300 text-ink-900' : 'bg-moss-50 text-ink-300'}`}>{d.short}</span>
                   ))}
-                  <Link to={`/day/${selected.id}/1`} className="ml-auto text-sm font-semibold text-moss-700">이 주 묵상 →</Link>
+                  <Link to={`/day/${selected.id}/${weekdaysOf(selected)[0]?.key ?? 1}`} className="ml-auto text-sm font-semibold text-moss-700">이 주 묵상 →</Link>
                 </div>
               </div>
             )}

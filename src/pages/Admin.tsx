@@ -10,14 +10,19 @@ function nextSunday() {
   return toYmd(addDays(d, (7 - d.getDay()) % 7))
 }
 
-interface Form { id?: string; date: string; title: string; passage: string; preacher: string; questions: string; family: string; days: string[] | null }
+interface Form {
+  id?: string; date: string; title: string; passage: string; preacher: string; questions: string; family: string
+  days: string[] | null      // 요일 본문(월부터 차례로, 1~7일). null = 본문 범위를 월~금 자동 분할
+  focus?: (string | undefined)[] // 고치기로 불러온 요일별 안내 문구(예: 성탄절) 유지용
+}
 const blank = (): Form => ({ date: nextSunday(), title: '', passage: '', preacher: '', questions: '', family: '', days: null })
 
 function fromSermon(s: Sermon): Form {
   return {
     id: s.id, date: s.date, title: s.title, passage: s.passage, preacher: s.preacher,
     questions: (s.groupQuestions ?? []).join('\n'), family: s.familyQuestion ?? '',
-    days: s.days ? s.days.map((d) => formatRef(d.ref)) : null,
+    days: s.days ? [...s.days].sort((a, b) => a.weekday - b.weekday).map((d) => formatRef(d.ref)) : null,
+    focus: s.days ? [...s.days].sort((a, b) => a.weekday - b.weekday).map((d) => d.focus) : undefined,
   }
 }
 
@@ -36,14 +41,15 @@ export default function Admin() {
   const auto = ref ? splitRef(ref) : null
   const dayTexts = f.days ?? auto?.map((p) => formatRef(p.ref)) ?? []
   const dayRefs = dayTexts.map((t) => parseRef(t))
-  const daysOk = dayRefs.length === 5 && dayRefs.every((r) => r && ref && r.book === ref.book)
-  const customized = !!f.days && daysOk && auto !== null && dayRefs.some((r, i) => formatRef(r!) !== formatRef(auto[i].ref))
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(f.date) && parseDate(f.date).getDay() === 0 && f.title.trim() && ref && daysOk
+  // 요일 본문은 책이 달라도 됨 (매일 묵상 계획: 예) 월 고후 12장 … 목 시편 20편)
+  const daysOk = dayRefs.length >= 1 && dayRefs.length <= 7 && dayRefs.every((r) => r)
+  const customized = !!f.days && daysOk && (!auto || dayRefs.length !== auto.length || dayRefs.some((r, i) => formatRef(r!) !== formatRef(auto[i].ref)))
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(f.date) && parseDate(f.date).getDay() === 0 && f.title.trim() && f.passage.trim() && (ref || f.days) && daysOk
 
   const build = (): Sermon => {
     const questions = f.questions.split('\n').map((q) => q.trim()).filter(Boolean)
     const days: DayPlan[] | undefined = customized
-      ? dayRefs.map((r, i) => ({ weekday: (i + 1) as Weekday, ref: r!, focus: WEEKDAYS[i].focus }))
+      ? dayRefs.map((r, i) => ({ weekday: (i + 1) as Weekday, ref: r!, focus: (dayTexts[i] === f.days?.[i] && f.focus?.[i]) || WEEKDAYS[i].focus }))
       : undefined
     return {
       id: f.id ?? f.date, date: f.date, title: f.title.trim(), passage: f.passage.trim(), preacher: f.preacher.trim(),
@@ -100,24 +106,28 @@ export default function Admin() {
             <label className="field-label" htmlFor="ps">본문 범위</label>
             <input id="ps" className="field" placeholder="예: 요한복음 15:1-17 / 시편 23 / 요 15:1-16:4" value={f.passage}
               onChange={(e) => set({ passage: e.target.value, days: null })} />
-            {f.passage && !ref && <p className="mt-1 text-xs text-dawn-700">본문 범위를 읽지 못했어요. ‘책이름 장:절-절’ 형식으로 적어 주세요.</p>}
+            {f.passage && !ref && !f.days && <p className="mt-1 text-xs text-dawn-700">본문 범위를 읽지 못했어요. ‘책이름 장:절-절’ 형식으로 적어 주세요.</p>}
             {ref && <p className="mt-1 text-xs text-moss-700">✓ {formatRef(ref)} · {expandRef(ref).length}절</p>}
           </div>
 
-          {auto && (
+          {(auto || f.days) && (
             <div className="rounded-2xl bg-moss-50 p-3">
               <div className="mb-2 flex items-center">
-                <p className="flex-1 text-sm font-semibold">월~금 묵상 본문 {customized ? '(직접 고침)' : '(자동으로 나눔)'}</p>
-                {f.days && <button className="text-xs text-moss-700 underline" onClick={() => set({ days: null })}>자동으로 되돌리기</button>}
+                <p className="flex-1 text-sm font-semibold">요일별 묵상 본문 {customized ? '(직접 고침)' : '(월~금 자동으로 나눔)'}</p>
+                {f.days && auto && <button className="text-xs text-moss-700 underline" onClick={() => set({ days: null })}>자동으로 되돌리기</button>}
               </div>
-              {WEEKDAYS.map((d, i) => (
+              {WEEKDAYS.slice(0, dayTexts.length).map((d, i) => (
                 <div key={d.key} className="mb-1.5 flex items-center gap-2">
                   <span className="w-14 text-sm text-ink-500">{d.short} {fmtDate(addDays(parseDate(f.date || nextSunday()), d.key)).replace('월 ', '/').replace('일', '')}</span>
-                  <input aria-label={`${d.label} 본문`} className={`field !py-2 text-sm ${dayRefs[i] && dayRefs[i]!.book === ref?.book ? '' : '!border-dawn-500'}`}
+                  <input aria-label={`${d.label} 본문`} className={`field !py-2 text-sm ${dayRefs[i] ? '' : '!border-dawn-500'}`}
                     value={dayTexts[i] ?? ''} onChange={(e) => { const next = [...dayTexts]; next[i] = e.target.value; set({ days: next }) }} />
                 </div>
               ))}
-              {!daysOk && <p className="text-xs text-dawn-700">요일 본문은 설교 본문과 같은 책으로 적어 주세요.</p>}
+              <div className="mt-1 flex gap-3 text-xs">
+                {dayTexts.length < 7 && <button className="text-moss-700 underline" onClick={() => set({ days: [...dayTexts, ''] })}>+ {WEEKDAYS[dayTexts.length].label} 추가</button>}
+                {dayTexts.length > 1 && <button className="text-ink-500 underline" onClick={() => set({ days: dayTexts.slice(0, -1) })}>− 마지막 날 빼기</button>}
+              </div>
+              {!daysOk && <p className="mt-1 text-xs text-dawn-700">요일 본문을 ‘책이름 장:절-절’ 형식으로 적어 주세요. (책은 달라도 돼요)</p>}
             </div>
           )}
 
